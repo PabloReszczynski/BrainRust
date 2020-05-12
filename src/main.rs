@@ -1,3 +1,9 @@
+use std::env;
+use std::error::Error;
+use std::fs::File;
+use std::io::prelude::*;
+use std::io::ErrorKind;
+
 #[derive(PartialEq, Copy, Clone, Debug)]
 enum Token {
   Plus,
@@ -19,12 +25,12 @@ struct Inst {
 type LabelStack = Vec<usize>;
 
 fn label_push(stack: &mut LabelStack) -> usize {
-    let last = match stack.last() {
-        Some(&last) => last,
-        None => 0
-    };
-    stack.push(last + 1);
-    last + 1
+  let last = match stack.last() {
+    Some(&last) => last,
+    None => 0,
+  };
+  stack.push(last + 1);
+  last + 1
 }
 
 impl Inst {
@@ -75,35 +81,31 @@ mod bytecode {
   }
 
   pub fn input() -> String {
-      vec![
-          "aload_2".to_string(),
-          "iload_1".to_string(),
-          "getstatic java/lang/System/in Ljava/io/InputStream;".to_string(),
-          "invokevirtual java/io/InputStream/read()I".to_string(),
-          "iastore".to_string()
-      ]
-      .join("\n")
+    vec![
+      "aload_2".to_string(),
+      "iload_1".to_string(),
+      "getstatic java/lang/System/in Ljava/io/InputStream;".to_string(),
+      "invokevirtual java/io/InputStream/read()I".to_string(),
+      "iastore".to_string(),
+    ]
+    .join("\n")
   }
 
   pub fn loop_start(stack: &mut super::LabelStack) -> String {
-      let pos = super::label_push(stack);
-      vec![
-        format!("loop{}Start:", pos),
-        "aload_2".to_string(),
-        "iload_1".to_string(),
-        "iaload".to_string(),
-        format!("ifeq loop{}End", pos)
-      ]
-      .join("\n")
+    let pos = super::label_push(stack);
+    vec![
+      format!("loop{}Start:", pos),
+      "aload_2".to_string(),
+      "iload_1".to_string(),
+      "iaload".to_string(),
+      format!("ifeq loop{}End", pos),
+    ]
+    .join("\n")
   }
 
   pub fn loop_end(stack: &mut super::LabelStack) -> String {
-      let pos = stack.pop().unwrap();
-      vec![
-          format!("goto loop{}Start", pos),
-          format!("loop{}End:", pos)
-      ]
-      .join("\n")
+    let pos = stack.pop().unwrap();
+    vec![format!("goto loop{}Start", pos), format!("loop{}End:", pos)].join("\n")
   }
 }
 fn lex_program(program: String) -> Result<Vec<Token>, String> {
@@ -118,9 +120,7 @@ fn lex_program(program: String) -> Result<Vec<Token>, String> {
       ',' => tokens.push(Token::ReadChar),
       '[' => tokens.push(Token::JumpIfZero),
       ']' => tokens.push(Token::JumpIfNonZero),
-      _ => {
-        return Err(format!("Parse Error on character {}", c));
-      }
+      _ => (), // skip
     }
   }
   Ok(tokens)
@@ -205,7 +205,7 @@ fn produce_code(instructions: Vec<Inst>) -> String {
   let mut code = vec![HEADER.to_string()];
   let mut stack: LabelStack = Vec::new();
   for inst in instructions {
-      code.push(inst.to_bytecode(&mut stack));
+    code.push(inst.to_bytecode(&mut stack));
   }
   code.push(TAIL.to_string());
   code.join("\n")
@@ -272,10 +272,22 @@ fn interpret(program: String) {
   println!("{}", output);
 }
 
-fn main() {
-  let program = String::from("++++++++++[>+++++++>++++++++++>+++>+<<<<-]>++.>+.+++++++..+++.>++.<<+++++++++++++++.>.+++.------.--------.>+.>.");
-  let tokens = lex_program(program).unwrap();
-  let instructions = parse_program(tokens).unwrap();
-  let code = produce_code(instructions);
-  println!("{}", code);
+fn main() -> Result<(), Box<dyn Error>> {
+  if let Some(filename) = env::args().nth(1) {
+    let mut file = File::open(filename)?;
+    let mut program = String::new();
+    file.read_to_string(&mut program)?;
+    let tokens = lex_program(program).unwrap();
+    let instructions = parse_program(tokens).unwrap();
+    let code = produce_code(instructions);
+    let mut outfile = File::create("main.j")?;
+    write!(outfile, "{}", code)?;
+    println!("Compiled code to main.j");
+    Ok(())
+  } else {
+    Err(Box::new(std::io::Error::new(
+      ErrorKind::InvalidInput,
+      "No input file!",
+    )))
+  }
 }
